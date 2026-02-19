@@ -96,7 +96,7 @@ else:
     ax2.axhline(0, color='k', linestyle='-', linewidth=0.5)
 
     # --- 7. SALVAR ARQUIVO ---
-    nome_arquivo = "curva_real_calibrada.pkl"
+    nome_arquivo = "rs_profile/curva_real_calibrada.pkl"
     with open(nome_arquivo, "wb") as f:
         pickle.dump(spline_real, f)
 
