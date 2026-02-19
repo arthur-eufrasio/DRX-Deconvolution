@@ -71,11 +71,11 @@ class XRD_Surface_Scan_Process:
         for i, center in enumerate(self.measurement_centers):
             # Janela Física do Feixe
             x_start_phys = center - self.beam_radius
+            x_end_phys = center + self.beam_radius
             
             # Geramos os pontos físicos teóricos que o feixe está "lendo"
             # Ex: se o feixe está em 0, lê de -0.25 a +0.25
-            x_samples_phys = np.linspace(x_start_phys, x_start_phys + self.beam_diameter, points_per_beam)
-            
+            x_samples_phys = np.linspace(x_start_phys, x_end_phys, points_per_beam + 1)       
             for x_p in x_samples_phys:
                 # --- AQUI ESTÁ A MÁGICA DA SIMETRIA ---
                 # Se o feixe lê -0.1mm, isso corresponde à tensão em +0.1mm na peça
