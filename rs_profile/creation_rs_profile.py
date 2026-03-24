@@ -1,108 +1,102 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
+import json
 import pickle
+import os
 
-# --- 1. DEFINIÇÃO DA CURVA ORIGINAL (NORMALIZADA) ---
-def curve_equation_original(r_norm, sigma_ref=1.0):
+# --- 1. LOAD SIMULATION DATA ---
+file_path = "rs_profile/sim_data/0006_model_stress_profile.json"
+with open(file_path, "r") as f:
+    data_sim = json.load(f)
+
+# Assuming data is structured as lists of [x, y] coordinate pairs
+data_surface = np.array(data_sim["0006_model"]['surface'])
+data_depth = np.array(data_sim["0006_model"]['depth'])
+
+# Ensure the output directory exists
+os.makedirs("rs_profile", exist_ok=True)
+
+def create_and_save_profile(data_ref, profile_name, output_filename):
     """
-    Modelo original normalizado para referência visual.
+    Plots reference data, allows user to click points, generates a spline, 
+    and saves the model as a .pkl file.
     """
-    t1 = -0.38 * np.exp(-(r_norm - 0.0)**2 / (2 * 1.2**2)) 
-    t2 = -0.75 * np.exp(-(r_norm - 1.05)**2 / (2 * 0.35**2))
-    t3 = 0.12 * np.exp(-(r_norm - 2.6)**2 / (2 * 0.7**2))
-    return sigma_ref * (t1 + t2 + t3)
-
-# --- 2. PLOT INTERATIVO (MUNDO NORMALIZADO) ---
-# Usamos o normalizado para facilitar o desenho (0 a 4)
-r_norm_plot = np.linspace(0, 4.0, 300)
-sigma_norm_plot = curve_equation_original(r_norm_plot)
-
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.plot(r_norm_plot, sigma_norm_plot, 'b--', alpha=0.4, label='Referência (Normalizada)')
-ax.set_title("PASSO 1: Clique para desenhar o perfil (Normalizado). ENTER para finalizar.")
-ax.set_xlabel("Raio Normalizado (r / r_spot)")
-ax.set_ylabel("Tensão Normalizada (sigma / sigma_ref)")
-ax.grid(True, alpha=0.3)
-ax.set_ylim(-1.2, 0.5)
-ax.set_xlim(0, 4.0)
-ax.legend()
-
-print(">>> INSTRUÇÕES:")
-print("1. Clique no gráfico para criar a forma da curva.")
-print("2. Pressione ENTER (ou botão do meio) quando terminar a seleção.")
-
-# --- 3. COLETA DE PONTOS ---
-points = plt.ginput(n=-1, timeout=0, show_clicks=True)
-plt.close(fig) # Fecha a janela antiga para não confundir
-
-if len(points) < 2:
-    print("Erro: Você precisa selecionar pelo menos 2 pontos!")
-else:
-    # --- 4. ENTRADA DE DADOS FÍSICOS (CONVERSÃO) ---
-    print("\n" + "="*40)
-    print("   CONFIGURAÇÃO DE ESCALA REAL")
+    print(f"\n" + "="*40)
+    print(f"   PROCESSING {profile_name.upper()} PROFILE")
     print("="*40)
     
-    try:
-        r_spot_input = float(input("Digite o RAIO DO SPOT (r_spot) em mm [ex: 1.5]: "))
-        sigma_ref_input = float(input("Digite a TENSÃO DE REFERÊNCIA (sigma_ref) em MPa [ex: -400]: "))
-    except ValueError:
-        print("Erro: Por favor, digite números válidos (use ponto para decimais).")
-        exit()
+    # Extract X and Y from the reference data for plotting
+    x_ref = data_ref[:, 0]
+    y_ref = data_ref[:, 1]
 
-    # Processamento dos pontos clicados
+    # --- 2. INTERACTIVE PLOT ---
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(x_ref, y_ref, 'b--', alpha=0.6, label=f'Simulation Reference ({profile_name})')
+    
+    ax.set_title(f"STEP 1: Click to draw the {profile_name} profile. Press ENTER to finish.")
+    ax.set_xlabel("Distance") 
+    ax.set_ylabel("Residual Stress") 
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+
+    print(f">>> INSTRUCTIONS:")
+    print(f"1. Click on the graph to trace your desired {profile_name} curve.")
+    print(f"2. Press ENTER (or middle mouse button) when finished.")
+
+    # --- 3. POINT COLLECTION ---
+    points = plt.ginput(n=-1, timeout=0, show_clicks=True)
+    plt.close(fig) # Close interactive window after pressing ENTER
+
+    if len(points) < 2:
+        print(f"Error: You must select at least 2 points for the {profile_name} profile!")
+        return None
+
+    # --- 4. SPLINE GENERATION ---
     points = np.array(points)
-    order = np.argsort(points[:, 0])
+    order = np.argsort(points[:, 0]) # Sort points by X axis
     
-    # --- CONVERSÃO: NORMALIZADO -> REAL ---
-    # x_user (0 a 4) vira mm
-    x_real_mm = points[order, 0] * r_spot_input
-    
-    # y_user (-1 a 0.5) vira MPa
-    # Nota: Se sigma_ref for negativo (ex: -400 de compressão), 
-    # certifique-se de que a lógica de sinal faz sentido para você.
-    # Geralmente a curva normalizada é negativa e o sigma_ref é positivo (magnitude),
-    # OU a curva é negativa e sigma_ref é escalar. 
-    # Aqui multiplicamos direto: (-1.0 * 400 = -400 MPa) ou (-1.0 * -400 = +400?).
-    # Assumindo que você desenhou picos negativos e sigma_ref é a MAGNITUDE (positivo):
-    y_real_mpa = points[order, 1] * abs(sigma_ref_input)
-    
-    # Se quiser que sigma_ref seja o valor de pico negativo (ex: -800), remova o abs() acima.
+    x_user = points[order, 0]
+    y_user = points[order, 1]
 
-    # --- 5. CRIAÇÃO DA SPLINE REAL ---
-    # Esta função agora aceita mm e retorna MPa
-    spline_real = CubicSpline(x_real_mm, y_real_mpa, bc_type='natural')
+    # Create the spline
+    spline = CubicSpline(x_user, y_user, bc_type='natural')
 
-    # --- 6. PLOTAGEM DO RESULTADO FINAL (FÍSICO) ---
-    r_final_mm = np.linspace(0, 4.0 * r_spot_input, 500)
-    sigma_final_mpa = spline_real(r_final_mm)
+    # --- 5. FINAL PLOT PREPARATION ---
+    # Generate points for smooth plotting based on user input range
+    x_final = np.linspace(min(x_user), max(x_user), 500)
+    y_final = spline(x_final)
 
-    fig2, ax2 = plt.subplots(figsize=(10, 6))
+    fig_result, ax_result = plt.subplots(figsize=(10, 6))
     
-    # Pontos que você clicou (convertidos)
-    ax2.plot(x_real_mm, y_real_mpa, 'ro', label='Pontos Selecionados (Escalados)')
+    # Plot reference, user points, and final spline
+    ax_result.plot(x_ref, y_ref, 'b--', alpha=0.3, label='Simulation Reference')
+    ax_result.plot(x_user, y_user, 'ro', label='Selected Points')
+    ax_result.plot(x_final, y_final, 'g-', linewidth=2, label=f'Final {profile_name} Spline')
     
-    # Curva suave final
-    ax2.plot(r_final_mm, sigma_final_mpa, 'g-', linewidth=2, label='Perfil Final Real (Spline)')
-    
-    ax2.set_title(f"Perfil de Tensão Residual Real\n(Spot: {r_spot_input}mm | Ref: {sigma_ref_input} MPa)")
-    ax2.set_xlabel("Distância Radial (mm)")
-    ax2.set_ylabel("Tensão Residual (MPa)")
-    ax2.grid(True, alpha=0.3)
-    ax2.legend()
-    
-    # Linha de zero para referência
-    ax2.axhline(0, color='k', linestyle='-', linewidth=0.5)
+    ax_result.set_title(f"Final {profile_name} Residual Stress Profile")
+    ax_result.set_xlabel("Distance")
+    ax_result.set_ylabel("Residual Stress")
+    ax_result.grid(True, alpha=0.3)
+    ax_result.axhline(0, color='k', linestyle='-', linewidth=0.5)
+    ax_result.legend()
 
-    # --- 7. SALVAR ARQUIVO ---
-    nome_arquivo = "rs_profile/curva_real_calibrada.pkl"
-    with open(nome_arquivo, "wb") as f:
-        pickle.dump(spline_real, f)
+    # --- 6. SAVE FILE ---
+    with open(output_filename, "wb") as f:
+        pickle.dump(spline, f)
 
-    print(f"\n>>> SUCESSO!")
-    print(f"A curva foi convertida e salva em '{nome_arquivo}'.")
-    print(f"Para usar: carregue o arquivo e chame a função passando raio em mm.")
-    print(f"Exemplo: tensao = funcao_carregada(0.5)  # Retorna MPa em 0.5mm")
+    print(f"\n>>> SUCCESS!")
+    print(f"The {profile_name} curve was successfully saved to '{output_filename}'.")
     
+    return fig_result
+
+# Execute for Surface
+fig_surf = create_and_save_profile(data_surface, "Surface", "rs_profile/surface_spline.pkl")
+
+# Execute for Depth
+fig_dep = create_and_save_profile(data_depth, "Depth", "rs_profile/depth_spline.pkl")
+
+# Show both final result plots together at the end
+if fig_surf is not None or fig_dep is not None:
+    print("\nDisplaying final generated profiles. Close the windows to exit the script.")
     plt.show()
